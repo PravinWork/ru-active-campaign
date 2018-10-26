@@ -5,4 +5,6 @@ Repository for plugin of ActiveCampaign. It syncs the registered user in wordpre
 
 Place this code where your custom rgistration form is submitted. just after creating the user and updated its meta information. 
 
-<?php do_action('rusac_add_new_address',$user_id); ?>
+do_action('rusac_add_new_address',$user_id);
+
+Its very good procedure for custom registration forms.
