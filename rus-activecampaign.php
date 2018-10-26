@@ -17,14 +17,7 @@ define( 'rusac_URI', plugin_dir_url( __FILE__ ), true );
 class RUSActiveCampaign {
     
     function __construct(){      
-        
-        add_action('init', array($this, 'rusac_include_file'));
-        
-        if ( ! function_exists( 'rusac_add_script_style' ) ) {
-            add_action( 'wp_enqueue_scripts', array($this, 'rusac_add_script_style' ), 10 );
-        }
-        add_action('admin_enqueue_scripts', array($this, 'rusac_admin_style' ));
-
+ 
         add_action( 'admin_init', array($this, 'rusac_register_settings' ) );
         add_action('admin_menu', array($this, 'rusac_register_options_page') );
 
@@ -35,14 +28,20 @@ class RUSActiveCampaign {
     }
 
     function rusac_load_api_details() {
+        $api_key = get_option('rusac_api_key');
+        $api_url = get_option('rusac_api_url');
+        $api_output = 'serialize';
+        $api_action = 'contact_add';
+
         $params = array(
 
             // the API Key can be found on the "Your Settings" page under the "API" tab.
             // replace this with your API Key
-            'api_key'      => '875007a60a311ade8c1f038b1d918bd437af9970aeab03584e2ab3580e3def928fd71868',
+            //'api_key'      => '875007a60a311ade8c1f038b1d918bd437af9970aeab03584e2ab3580e3def928fd71868',
+            'api_key'      => $api_key,
 
             // this is the action that adds a contact
-            'api_action'   => 'contact_add',
+            'api_action'   => $api_action,
 
             // define the type of output you wish to get back
             // possible values:
@@ -51,10 +50,22 @@ class RUSActiveCampaign {
             //                 json_decode() function (included in PHP since 5.2.0)
             // - 'serialize' : data is returned in a serialized format and can be decoded with
             //                 a native unserialize() function
-            'api_output'   => 'serialize',
-            'api_url'     => 'https://pravinfwork.api-us1.com'
+            'api_output'   => $api_output,
+            'api_url'     => $api_url
         );
         return apply_filters('rusac_fetch_api_details' ,$params);
+    }
+
+    function rusac_fetch_general_settings() {
+        $settings = array();
+        $settings['autoresponder'] = 1;
+        $settings['tags'] = '';
+        $settings['status'] = 1;
+
+        $primary_list_id = get_option('rusac_list_id');
+        
+        $settings['primary_list_id'] = ($primary_list_id != '') ? $primary_list_id : 1;
+        return apply_filters('rusac_load_settings', $settings);
     }
 
     function rusac_prepare_registered_user_data($user_id) {
@@ -77,13 +88,10 @@ class RUSActiveCampaign {
                 break;
         }
 
-        $settings = array();
-        $settings['autoresponder'] = 1;
-        $settings['tags'] = $lang_tags;
-        $settings['status'] = 1;
-        $settings['primary_list_id'] = 1;
+        $settings = $this->rusac_fetch_general_settings();
         
-        //echo '<pre>User Obj:'; print_r($user_obj); echo '</pre>';
+        $settings['tags'] = $lang_tags;
+        
         $first_name = get_user_meta( $user_id, 'first_name', true );
         $last_name  = get_user_meta( $user_id, 'last_name', true );
         $mobile     = get_user_meta( $user_id, 'mobile', true );
@@ -151,6 +159,8 @@ class RUSActiveCampaign {
 
         // define a final API request - GET
         $api = $url . '/admin/api.php?' . $query;
+        
+        do_action('rusac_before_send_data_to_ac', $api, $user_id);
 
         $request = curl_init($api); // initiate curl object
         curl_setopt($request, CURLOPT_HEADER, 0); // set to 0 to eliminate header info from response
@@ -172,24 +182,25 @@ class RUSActiveCampaign {
 
         // unserializer
         $result = unserialize($response);
+        do_action('rusac_after_sent_data_to_ac', $result);
     }
 
     function rusac_register_settings() {
-        $fbpage = get_option('rusac_api_url');
-        if(empty($fbpage)){ 
+        $api_url = get_option('rusac_api_url');
+        if(empty($api_url)){ 
             add_option( 'rusac_api_url', '');
         }
-        $fbtoken = get_option('rusac_api_key');
-        if(empty($fbtoken)) {
+        $api_key = get_option('rusac_api_key');
+        if(empty($api_key)) {
             add_option( 'rusac_api_key', '');
         }
-        /*$no_images = get_option('pdfbpg_number_of_images');
-        if(empty($no_images)) {
-            add_option( 'pdfbpg_number_of_images', '4');
-        } */
-        register_setting( 'pdfbpg_options_group', 'rusac_api_url', 'rusac_callback' );
-        register_setting( 'pdfbpg_options_group', 'rusac_api_key', 'rusac_callback' );
-        //register_setting( 'pdfbpg_options_group', 'pdfbpg_number_of_images', 'pdfbpg_callback' );
+        $list_id = get_option('rusac_list_id');
+        if(empty($list_id)) {
+            add_option( 'rusac_list_id', '1');
+        } 
+        register_setting( 'rusac_options_group', 'rusac_api_url', 'rusac_callback' );
+        register_setting( 'rusac_options_group', 'rusac_api_key', 'rusac_callback' );
+        register_setting( 'rusac_options_group', 'rusac_list_id', 'rusac_callback' );
     }
     function rusac_register_options_page() {
         add_options_page('RU Active Campaigns Settings', 'RU Active Campaigns Settings', 'manage_options', 'rusac-settings', array($this,'rusac_options_page'));
@@ -197,27 +208,33 @@ class RUSActiveCampaign {
 
     function rusac_options_page() { 
     ?>
-        <div>
-            <?php screen_icon(); ?>
-            <h2><?php echo _e('RU Active Campaigns Settings','rusac');?></h2>
-            <form method="post" action="options.php">
-                <?php settings_fields( 'rusac_options_group' ); ?>
-                
-               <p></p>
-                <table>
-                    <tr valign="top">
-                        <th scope="row"><label for="pdfbpg_fbpage_name"><?php echo _e('API URL','post-gallery-facebook');?></label></th>
-                        <td><input type="text" id="pdfbpg_fbpage_name" name="pdfbpg_fbpage_name" value="<?php echo (get_option('rusac_api_url')); ?>" /></td>
-                    </tr>
-                    <tr valign="top">
-                        <th scope="row"><label for="pdfbpg_fb_access_token"><?php echo _e('API Key','post-gallery-facebook');?></label></th>
-                        <td><input type="text" id="pdfbpg_fb_access_token" name="pdfbpg_fb_access_token" value="<?php echo (get_option('rusac_api_key')); ?>" /> </td>
-                    </tr> 
-                </table>
-                <?php  submit_button(); ?>
-            </form>
-            <div id="test-result"></div>
-        </div>
+    <div class="rusac-settings-section">
+        <style type="text/css">
+        form.rusac-settings input[type="text"]{padding:5px 10px;font-size:14px;width:300px;max-width:100%;}
+        form.rusac-settings label{font-size:14px;line-height:30px;}
+        </style>
+        <?php screen_icon(); ?>
+        <h2><?php echo _e('RU Active Campaigns Settings','rusac');?></h2>
+        <form method="post" class="rusac-settings" action="options.php">
+            <?php settings_fields( 'rusac_options_group' ); ?>
+           <p></p>
+            <table>
+                <tr valign="top">
+                    <th scope="row"><label for="rusac_api_url"><?php echo _e('API URL','rus-activecampaign');?></label></th>
+                    <td><input type="text" id="rusac_api_url" name="rusac_api_url" value="<?php echo (get_option('rusac_api_url')); ?>" /></td>
+                </tr>
+                <tr valign="top">
+                    <th scope="row"><label for="rusac_api_key"><?php echo _e('API Key','rus-activecampaign');?></label></th>
+                    <td><input type="text" id="rusac_api_key" name="rusac_api_key" value="<?php echo (get_option('rusac_api_key')); ?>" /> </td>
+                </tr>
+                <tr valign="top">
+                    <th scope="row"><label for="rusac_list_id"><?php echo _e('Listing ID','rus-activecampaign');?></label></th>
+                    <td><input type="text" id="rusac_list_id" name="rusac_list_id" value="<?php echo (get_option('rusac_list_id')); ?>" /> </td>
+                </tr>
+            </table>
+            <?php  submit_button(); ?>
+        </form> 
+    </div>
     <?php
     }
 }
